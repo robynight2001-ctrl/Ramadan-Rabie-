@@ -1,10 +1,22 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {fetchPublicPortfolio} from './lib/api.ts';
+import {ErrorBoundary} from './components/ErrorBoundary.tsx';
+import {fetchPublicPortfolio, subscribePublicPortfolio} from './lib/api.ts';
 import {PortfolioPage} from './pages/PortfolioPage.tsx';
 import {SettingsPage} from './pages/SettingsPage.tsx';
 import type {PortfolioData} from './types/portfolio.ts';
 
-export default function App() {
+function formatPortfolioError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || 'Unable to load portfolio.');
+  try {
+    const parsed = JSON.parse(raw) as {error?: string};
+    if (parsed && parsed.error) return parsed.error;
+  } catch {
+    // not JSON
+  }
+  return raw;
+}
+
+function AppContent() {
   const [pathname, setPathname] = useState<string>(() => window.location.pathname);
   const [portfolio, setPortfolio] = useState<PortfolioData | null>(null);
   const [error, setError] = useState('');
@@ -17,7 +29,7 @@ export default function App() {
       setPortfolio(data);
       setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load portfolio.');
+      setError(formatPortfolioError(err));
     }
   }, []);
 
@@ -25,30 +37,23 @@ export default function App() {
     loadPortfolio();
   }, [loadPortfolio]);
 
-  // Real-time cross-device synchronization via SSE + window focus revalidation
+  // Real-time cross-device synchronization via Firestore onSnapshot + focus revalidation
   useEffect(() => {
     if (pathname.startsWith('/settings')) return;
+    let active = true;
 
-    const es = new EventSource('/api/portfolio/events');
-    const handleVersion = (ev: MessageEvent) => {
-      try {
-        const parsed = JSON.parse(ev.data) as {publishedVersion?: number};
-        if (
-          typeof parsed.publishedVersion === 'number' &&
-          currentVersionRef.current !== undefined &&
-          parsed.publishedVersion !== currentVersionRef.current
-        ) {
-          loadPortfolio();
-        }
-      } catch {
-        // ignore parse error
+    const unsubscribe = subscribePublicPortfolio(
+      (data) => {
+        if (!active) return;
+        currentVersionRef.current = data.publishedVersion;
+        setPortfolio(data);
+        setError('');
+      },
+      (err) => {
+        if (!active) return;
+        setError(formatPortfolioError(err));
       }
-    };
-
-    es.addEventListener('published', () => {
-      loadPortfolio();
-    });
-    es.addEventListener('version', handleVersion);
+    );
 
     const onVisibilityOrFocus = () => {
       if (document.visibilityState === 'visible') {
@@ -60,7 +65,8 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisibilityOrFocus);
 
     return () => {
-      es.close();
+      active = false;
+      unsubscribe();
       window.removeEventListener('focus', onVisibilityOrFocus);
       document.removeEventListener('visibilitychange', onVisibilityOrFocus);
     };
@@ -113,11 +119,11 @@ export default function App() {
     );
   }
 
-  if (error) {
+  if (error && !portfolio) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#08090D] px-6 text-center text-[#F5F5F7]">
         <p className="font-display text-xl font-semibold">Failed to load portfolio</p>
-        <p className="mt-2 text-sm text-[#9CA3AF]">{error}</p>
+        <p className="mt-2 max-w-md text-sm text-[#9CA3AF]">{error}</p>
         <button
           type="button"
           onClick={loadPortfolio}
@@ -142,5 +148,13 @@ export default function App() {
       data={portfolio}
       onNavigateSettings={() => navigate('/settings')}
     />
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   );
 }

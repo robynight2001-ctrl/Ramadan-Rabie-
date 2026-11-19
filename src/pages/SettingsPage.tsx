@@ -26,11 +26,11 @@ import {AdminProfileTab} from '../components/admin/AdminProfileTab.tsx';
 import {AdminProjectsTab} from '../components/admin/AdminProjectsTab.tsx';
 import {AdminServicesSkillsTab} from '../components/admin/AdminServicesSkillsTab.tsx';
 import {
-  checkAuthStatus,
   discardAdminDraft,
   fetchAdminDashboard,
   logoutAdmin,
   publishAdminWebsite,
+  subscribeAuthState,
 } from '../lib/api.ts';
 import type {AdminDashboardData} from '../types/portfolio.ts';
 
@@ -68,6 +68,7 @@ export function SettingsPage({onNavigateHome, onPortfolioChanged}: SettingsPageP
   const [username, setUsername] = useState('');
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
   const [loadingDash, setLoadingDash] = useState(false);
+  const [dashError, setDashError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [hasUnsavedFormEdits, setHasUnsavedFormEdits] = useState(false);
@@ -87,31 +88,43 @@ export function SettingsPage({onNavigateHome, onPortfolioChanged}: SettingsPageP
 
   const loadDashboard = useCallback(async () => {
     setLoadingDash(true);
+    setDashError('');
     try {
       const data = await fetchAdminDashboard();
       setDashboard(data);
     } catch (err) {
-      notify('error', err instanceof Error ? err.message : 'Failed to load dashboard.');
+      let msg = err instanceof Error ? err.message : 'Failed to load dashboard.';
+      try {
+        const parsed = JSON.parse(msg) as {error?: string};
+        if (parsed?.error) msg = parsed.error;
+      } catch {
+        // plain error text
+      }
+      setDashError(msg);
+      notify('error', msg);
     } finally {
       setLoadingDash(false);
     }
   }, [notify]);
 
   useEffect(() => {
-    let active = true;
-    checkAuthStatus().then((res) => {
-      if (!active) return;
-      setAuthenticated(res.authenticated);
-      setUsername(res.username || '');
-      setAuthChecked(true);
-      if (res.authenticated) {
-        loadDashboard();
+    const unsub = subscribeAuthState((state) => {
+      setAuthenticated(state.authenticated);
+      setUsername(state.user?.displayName || state.user?.email || 'Admin');
+      setAuthChecked(state.ready);
+      if (!state.authenticated) {
+        setDashboard(null);
+        setDashError('');
       }
     });
-    return () => {
-      active = false;
-    };
-  }, [loadDashboard]);
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (authenticated) {
+      loadDashboard();
+    }
+  }, [authenticated, loadDashboard]);
 
   const handleDashboardUpdate = useCallback(
     (next: AdminDashboardData) => {
@@ -179,7 +192,6 @@ export function SettingsPage({onNavigateHome, onPortfolioChanged}: SettingsPageP
         onSuccess={(user) => {
           setAuthenticated(true);
           setUsername(user);
-          loadDashboard();
         }}
         onBackHome={onNavigateHome}
       />
@@ -423,10 +435,27 @@ export function SettingsPage({onNavigateHome, onPortfolioChanged}: SettingsPageP
 
         {/* Active Tab Viewport */}
         <main className="flex-1 p-6 lg:p-8 max-w-6xl w-full mx-auto">
-          {loadingDash || !dashboard ? (
+          {loadingDash ? (
             <div className="space-y-4">
               <div className="h-28 rounded-2xl border border-white/[0.06] bg-[#11131B]/60 animate-pulse" />
               <div className="h-64 rounded-2xl border border-white/[0.06] bg-[#11131B]/60 animate-pulse" />
+            </div>
+          ) : dashError || !dashboard ? (
+            <div className="rounded-2xl border border-red-500/30 bg-[#11131B] p-8 text-center">
+              <AlertCircle className="mx-auto h-8 w-8 text-red-400" aria-hidden="true" />
+              <h2 className="mt-3 font-display text-lg font-semibold text-[#F5F5F7]">
+                Unable to load dashboard
+              </h2>
+              <p className="mt-2 text-sm text-[#9CA3AF]">
+                {dashError || 'Firestore dashboard data could not be loaded.'}
+              </p>
+              <button
+                type="button"
+                onClick={loadDashboard}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-5 py-2.5 text-sm font-semibold text-white"
+              >
+                Retry
+              </button>
             </div>
           ) : (
             <>

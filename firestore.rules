@@ -1,0 +1,229 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny all reads and writes by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email == 'robynight2001@gmail.com'
+          || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        );
+    }
+
+    function isValidSnapshotMap(data) {
+      return data.profile is map
+        && data.profile.name is string && data.profile.name.size() <= 120
+        && data.profile.title is string && data.profile.title.size() <= 160
+        && data.profile.heroHeadline is string && data.profile.heroHeadline.size() <= 300
+        && data.profile.heroDescription is string && data.profile.heroDescription.size() <= 1200
+        && data.profile.aboutHeading is string && data.profile.aboutHeading.size() <= 200
+        && data.profile.aboutText is string && data.profile.aboutText.size() <= 3000
+        && data.profile.aboutHighlights is list && data.profile.aboutHighlights.size() <= 20
+        && (data.profile.aboutHighlights.size() == 0 || data.profile.aboutHighlights[0] is string)
+        && data.profile.availabilityStatus is string && data.profile.availabilityStatus.size() <= 100
+        && data.profile.availabilityActive is bool
+        && data.profile.profileImage is string && data.profile.profileImage.size() <= 800000
+        && data.profile.aboutImage is string && data.profile.aboutImage.size() <= 800000
+        && data.profile.heroBgImage is string && data.profile.heroBgImage.size() <= 800000
+        && data.profile.primaryCtaLabel is string && data.profile.primaryCtaLabel.size() <= 80
+        && data.profile.primaryCtaHref is string && data.profile.primaryCtaHref.size() <= 500
+        && data.profile.secondaryCtaLabel is string && data.profile.secondaryCtaLabel.size() <= 80
+        && data.profile.secondaryCtaHref is string && data.profile.secondaryCtaHref.size() <= 500
+        && data.social is map
+        && data.social.instagramUrl is string && data.social.instagramUrl.size() <= 500
+        && data.social.facebookUrl is string && data.social.facebookUrl.size() <= 500
+        && data.social.whatsappNumber is string && data.social.whatsappNumber.size() <= 60
+        && data.social.whatsappLink is string && data.social.whatsappLink.size() <= 500
+        && data.social.email is string && data.social.email.size() <= 200
+        && data.content is map
+        && data.content.navLabels is map
+        && data.content.servicesTitle is string && data.content.servicesTitle.size() <= 200
+        && data.content.servicesSubtitle is string && data.content.servicesSubtitle.size() <= 600
+        && data.content.skillsTitle is string && data.content.skillsTitle.size() <= 200
+        && data.content.projectsTitle is string && data.content.projectsTitle.size() <= 200
+        && data.content.projectsSubtitle is string && data.content.projectsSubtitle.size() <= 600
+        && data.content.contactHeadline is string && data.content.contactHeadline.size() <= 250
+        && data.content.contactDescription is string && data.content.contactDescription.size() <= 1000
+        && data.content.footerBio is string && data.content.footerBio.size() <= 500
+        && data.content.footerCopyrightName is string && data.content.footerCopyrightName.size() <= 120
+        && data.content.showLoadingScreen is bool
+        && data.general is map
+        && data.general.siteTitle is string && data.general.siteTitle.size() <= 200
+        && data.general.siteDescription is string && data.general.siteDescription.size() <= 600
+        && data.general.enable3DBackground is bool
+        && data.general.enableCustomCursor is bool
+        && data.general.enableFloatingWhatsApp is bool;
+    }
+
+    function isValidPublicSnapshot(data) {
+      return data.keys().hasAll(['profile', 'social', 'content', 'general', 'publishedVersion', 'lastPublishedAt'])
+        && data.keys().hasOnly(['profile', 'social', 'content', 'general', 'publishedVersion', 'lastPublishedAt'])
+        && isValidSnapshotMap(data)
+        && data.publishedVersion is number
+        && data.lastPublishedAt is string && data.lastPublishedAt.size() <= 64;
+    }
+
+    function isValidDraftSnapshot(data) {
+      return data.keys().hasAll(['profile', 'social', 'content', 'general', 'publishMeta'])
+        && data.keys().hasOnly(['profile', 'social', 'content', 'general', 'publishMeta'])
+        && isValidSnapshotMap(data)
+        && data.publishMeta is map
+        && data.publishMeta.status in ['published', 'draft']
+        && data.publishMeta.hasUnpublishedChanges is bool
+        && data.publishMeta.publishedVersion is number
+        && (data.publishMeta.lastPublishedAt == null || (data.publishMeta.lastPublishedAt is string && data.publishMeta.lastPublishedAt.size() <= 64));
+    }
+
+    function isValidProject(data, projectId) {
+      return data.keys().hasAll([
+          'id', 'title', 'clientName', 'description', 'category',
+          'technologies', 'coverImage', 'liveUrl', 'isFeatured',
+          'isPublished', 'sortOrder', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'clientName', 'description', 'category',
+          'technologies', 'coverImage', 'liveUrl', 'isFeatured',
+          'isPublished', 'sortOrder', 'createdAt'
+        ])
+        && data.id == projectId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.clientName is string && data.clientName.size() <= 160
+        && data.description is string && data.description.size() <= 2000
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.technologies is list && data.technologies.size() <= 20
+        && (data.technologies.size() == 0 || data.technologies[0] is string)
+        && data.coverImage is string && data.coverImage.size() <= 800000
+        && data.liveUrl is string && data.liveUrl.size() >= 1 && data.liveUrl.size() <= 1000
+        && data.isFeatured is bool
+        && data.isPublished is bool
+        && data.sortOrder is number
+        && data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 64;
+    }
+
+    function isValidService(data, serviceId) {
+      return data.keys().hasAll(['id', 'title', 'description', 'icon', 'sortOrder', 'isActive'])
+        && data.keys().hasOnly(['id', 'title', 'description', 'icon', 'sortOrder', 'isActive'])
+        && data.id == serviceId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.description is string && data.description.size() <= 1000
+        && data.icon is string && data.icon.size() >= 1 && data.icon.size() <= 60
+        && data.sortOrder is number
+        && data.isActive is bool;
+    }
+
+    function isValidSkill(data, skillId) {
+      return data.keys().hasAll(['id', 'name', 'category', 'proficiency', 'sortOrder'])
+        && data.keys().hasOnly(['id', 'name', 'category', 'proficiency', 'sortOrder'])
+        && data.id == skillId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.proficiency is number && data.proficiency >= 0 && data.proficiency <= 100
+        && data.sortOrder is number;
+    }
+
+    function isValidMedia(data, mediaId) {
+      return data.keys().hasAll([
+          'id', 'filename', 'originalName', 'url', 'mimeType',
+          'sizeBytes', 'sectionTag', 'isBuiltin', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'filename', 'originalName', 'url', 'mimeType',
+          'sizeBytes', 'sectionTag', 'isBuiltin', 'createdAt'
+        ])
+        && data.id == mediaId
+        && data.filename is string && data.filename.size() >= 1 && data.filename.size() <= 260
+        && data.originalName is string && data.originalName.size() >= 1 && data.originalName.size() <= 260
+        && data.url is string && data.url.size() >= 1 && data.url.size() <= 800000
+        && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120
+        && data.sizeBytes is number && data.sizeBytes >= 0
+        && data.sectionTag in ['profile', 'hero', 'about', 'project', 'general']
+        && data.isBuiltin is bool
+        && data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 64;
+    }
+
+    // Startup connectivity check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Published public portfolio snapshot (single doc)
+    match /portfolio_public/{docId} {
+      allow get: if docId == 'live';
+      allow create, update: if docId == 'live' && isAdmin() && isValidPublicSnapshot(incoming());
+      allow delete: if false;
+    }
+
+    // Admin-only draft configuration snapshot (single doc)
+    match /portfolio_draft/{docId} {
+      allow get: if docId == 'current' && isAdmin();
+      allow create, update: if docId == 'current' && isAdmin() && isValidDraftSnapshot(incoming());
+      allow delete: if false;
+    }
+
+    // Portfolio Projects
+    match /projects/{projectId} {
+      allow get: if isValidId(projectId) && (existing().isPublished == true || isAdmin());
+      allow list: if existing().isPublished == true || isAdmin();
+      allow create: if isAdmin() && isValidId(projectId) && isValidProject(incoming(), projectId);
+      allow update: if isAdmin() && isValidId(projectId) && isValidProject(incoming(), projectId)
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(projectId);
+    }
+
+    // Services
+    match /services/{serviceId} {
+      allow get: if isValidId(serviceId) && (existing().isActive == true || isAdmin());
+      allow list: if existing().isActive == true || isAdmin();
+      allow create: if isAdmin() && isValidId(serviceId) && isValidService(incoming(), serviceId);
+      allow update: if isAdmin() && isValidId(serviceId) && isValidService(incoming(), serviceId);
+      allow delete: if isAdmin() && isValidId(serviceId);
+    }
+
+    // Skills
+    match /skills/{skillId} {
+      allow get: if isValidId(skillId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(skillId) && isValidSkill(incoming(), skillId);
+      allow update: if isAdmin() && isValidId(skillId) && isValidSkill(incoming(), skillId);
+      allow delete: if isAdmin() && isValidId(skillId);
+    }
+
+    // Admin-only Media Library
+    match /media/{mediaId} {
+      allow get: if isAdmin() && isValidId(mediaId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(mediaId) && isValidMedia(incoming(), mediaId);
+      allow update: if isAdmin() && isValidId(mediaId) && isValidMedia(incoming(), mediaId)
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(mediaId);
+    }
+
+    // Admin Registry
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && request.auth.uid == adminUid;
+      allow write: if false;
+    }
+  }
+}

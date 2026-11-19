@@ -1,0 +1,261 @@
+{
+  "entities": {
+    "PortfolioSnapshot": {
+      "title": "PortfolioSnapshot",
+      "description": "Published or draft site-wide configuration for profile, social links, section copy, and general settings.",
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "object",
+          "description": "Developer profile, hero copy, about narrative, and visual URLs."
+        },
+        "social": {
+          "type": "object",
+          "description": "Social media and direct contact links."
+        },
+        "content": {
+          "type": "object",
+          "description": "Navigation labels, section headings, contact copy, and footer content."
+        },
+        "general": {
+          "type": "object",
+          "description": "SEO metadata and interactive visual feature toggles."
+        },
+        "publishMeta": {
+          "type": "object",
+          "description": "Publishing status, unpublished changes flag, lastPublishedAt timestamp, and version number."
+        },
+        "publishedVersion": {
+          "type": "number",
+          "description": "Monotonically increasing published version integer."
+        },
+        "lastPublishedAt": {
+          "type": "string",
+          "description": "ISO-8601 timestamp of the latest publish action."
+        }
+      },
+      "required": ["profile", "social", "content", "general"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Real client website or digital product showcased in the portfolio.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "clientName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "technologies": {
+          "type": "array",
+          "description": "Technologies used on the project (max 20)."
+        },
+        "coverImage": {
+          "type": "string",
+          "maxLength": 800000
+        },
+        "liveUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "isFeatured": {
+          "type": "boolean"
+        },
+        "isPublished": {
+          "type": "boolean"
+        },
+        "sortOrder": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "clientName",
+        "description",
+        "category",
+        "technologies",
+        "coverImage",
+        "liveUrl",
+        "isFeatured",
+        "isPublished",
+        "sortOrder",
+        "createdAt"
+      ]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Engineering service offered on the portfolio.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "sortOrder": {
+          "type": "number"
+        },
+        "isActive": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "title", "description", "icon", "sortOrder", "isActive"]
+    },
+    "Skill": {
+      "title": "Skill",
+      "description": "Core technology or engineering skill with proficiency.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "proficiency": {
+          "type": "number"
+        },
+        "sortOrder": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "name", "category", "proficiency", "sortOrder"]
+    },
+    "MediaAsset": {
+      "title": "MediaAsset",
+      "description": "Uploaded or studio image asset managed in the Media Library.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 260
+        },
+        "originalName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 260
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800000
+        },
+        "mimeType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "sizeBytes": {
+          "type": "number"
+        },
+        "sectionTag": {
+          "type": "string",
+          "enum": ["profile", "hero", "about", "project", "general"]
+        },
+        "isBuiltin": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "filename",
+        "originalName",
+        "url",
+        "mimeType",
+        "sizeBytes",
+        "sectionTag",
+        "isBuiltin",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/portfolio_public/live": {
+      "schema": {"$ref": "#/entities/PortfolioSnapshot"},
+      "description": "Publicly readable published portfolio configuration snapshot."
+    },
+    "/portfolio_draft/current": {
+      "schema": {"$ref": "#/entities/PortfolioSnapshot"},
+      "description": "Admin-only draft settings snapshot and publish state."
+    },
+    "/projects/{projectId}": {
+      "schema": {"$ref": "#/entities/Project"},
+      "description": "Portfolio projects collection; public read restricted to isPublished == true."
+    },
+    "/services/{serviceId}": {
+      "schema": {"$ref": "#/entities/Service"},
+      "description": "Engineering services collection; public read restricted to isActive == true."
+    },
+    "/skills/{skillId}": {
+      "schema": {"$ref": "#/entities/Skill"},
+      "description": "Technical skills collection."
+    },
+    "/media/{mediaId}": {
+      "schema": {"$ref": "#/entities/MediaAsset"},
+      "description": "Admin-only Media Library metadata and persistent image references."
+    }
+  }
+}

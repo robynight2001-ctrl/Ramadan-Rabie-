@@ -1,6 +1,6 @@
-import {KeyRound, Save} from 'lucide-react';
+import {Save} from 'lucide-react';
 import {useEffect, useState} from 'react';
-import {changeAdminPassword, saveSettingsSection} from '../../lib/api.ts';
+import {saveSettingsSection} from '../../lib/api.ts';
 import type {
   AdminDashboardData,
   ContentSettings,
@@ -302,10 +302,6 @@ export function AdminGeneralTab({dashboard, onUpdated, onNotify, onDirtyChange}:
   const [form, setForm] = useState<GeneralSettings>(dashboard.general);
   const [saving, setSaving] = useState(false);
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [updatingPwd, setUpdatingPwd] = useState(false);
-
   useEffect(() => {
     setForm(dashboard.general);
     onDirtyChange?.(false);
@@ -326,21 +322,6 @@ export function AdminGeneralTab({dashboard, onUpdated, onNotify, onDirtyChange}:
       onNotify('error', err instanceof Error ? err.message : 'Failed to save.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUpdatingPwd(true);
-    try {
-      await changeAdminPassword(currentPassword, newPassword);
-      setCurrentPassword('');
-      setNewPassword('');
-      onNotify('success', 'Admin password updated securely.');
-    } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Password update failed.');
-    } finally {
-      setUpdatingPwd(false);
     }
   };
 
@@ -414,51 +395,6 @@ export function AdminGeneralTab({dashboard, onUpdated, onNotify, onDirtyChange}:
           >
             <Save className="h-4 w-4" aria-hidden="true" />
             <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-          </button>
-        </div>
-      </form>
-
-      {/* Admin Password Update */}
-      <form
-        onSubmit={handleUpdatePassword}
-        className="rounded-2xl border border-white/[0.08] bg-[#11131B] p-6 space-y-5"
-      >
-        <div className="flex items-center gap-2.5">
-          <KeyRound className="h-5 w-5 text-[#A855F7]" aria-hidden="true" />
-          <h2 className="font-display text-lg font-semibold text-[#F5F5F7]">Security & Password</h2>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs text-[#9CA3AF] mb-1.5">Current Password</label>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.1] bg-[#08090D] px-4 py-2.5 text-sm text-[#F5F5F7] focus:border-[#8B5CF6] focus:outline-none"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-[#9CA3AF] mb-1.5">New Password (min 6 chars)</label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              minLength={6}
-              className="w-full rounded-xl border border-white/[0.1] bg-[#08090D] px-4 py-2.5 text-sm text-[#F5F5F7] focus:border-[#8B5CF6] focus:outline-none"
-              required
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={updatingPwd}
-            className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-white/[0.12] bg-[#08090D] px-5 py-2 text-sm font-medium text-[#F5F5F7] hover:border-[#8B5CF6]"
-          >
-            {updatingPwd ? 'Updating...' : 'Update Password'}
           </button>
         </div>
       </form>
