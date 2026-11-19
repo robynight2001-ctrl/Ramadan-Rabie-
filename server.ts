@@ -39,7 +39,9 @@ import {
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const SESSION_COOKIE = 'rr_admin_session';
+const ROOT_DIR = import.meta.dirname;
 
+app.set('trust proxy', 1);
 app.use(express.json({limit: '4mb'}));
 app.use(cookieParser());
 
@@ -129,6 +131,16 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): voi
   next();
 }
 
+// Health check endpoint
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    status: 'healthy',
+    env: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Public portfolio endpoint (always reads latest published snapshot from SQLite)
 app.get('/api/portfolio', (_req, res) => {
   try {
@@ -184,10 +196,12 @@ app.post('/api/auth/login', (req, res) => {
     return;
   }
   const token = createSession(username.trim());
+  const isHttps =
+    req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: isHttps ? 'none' : 'lax',
+    secure: isHttps,
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
   });
@@ -484,8 +498,18 @@ app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
   next(err);
 });
 
+// Explicit JSON 404 for unmatched /api/* routes so they never fall through to SPA HTML
+app.use('/api', (req, res) => {
+  res.status(404).json({error: `API route not found: ${req.originalUrl}`});
+});
+
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  const distDir = path.resolve(ROOT_DIR, 'dist');
+  const distIndex = path.join(distDir, 'index.html');
+  const shouldServeProdDist =
+    process.env.NODE_ENV === 'production' && fs.existsSync(distIndex);
+
+  if (!shouldServeProdDist) {
     const {createServer: createViteServer} = await import('vite');
     const vite = await createViteServer({
       server: {middlewareMode: true},
@@ -493,15 +517,16 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
+      res.sendFile(distIndex);
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+    console.log(
+      `Server listening on http://0.0.0.0:${PORT} (${shouldServeProdDist ? 'production-dist' : 'vite-dev'})`
+    );
   });
 }
 

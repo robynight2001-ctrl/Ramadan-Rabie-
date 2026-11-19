@@ -39,16 +39,28 @@ async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T>
     headers.set('Content-Type', 'application/json');
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const doFetch = async () => {
+    return fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  };
 
-  const payload = await res.json().catch(() => ({}));
+  let res = await doFetch();
+  if ((res.status === 502 || res.status === 503) && (!options.method || options.method === 'GET')) {
+    await new Promise((r) => setTimeout(r, 600));
+    res = await doFetch();
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json')
+    ? await res.json().catch(() => ({}))
+    : {};
+
   if (!res.ok) {
-    throw new Error(payload?.error || `Request failed (${res.status})`);
+    throw new Error(payload?.error || `Request failed (${res.status}) for ${url.split('?')[0]}`);
   }
   return payload as T;
 }
