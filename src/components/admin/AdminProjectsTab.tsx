@@ -1,18 +1,21 @@
 import {
   ArrowDown,
   ArrowUp,
+  Bookmark,
+  CheckCircle2,
   ExternalLink,
   Eye,
   EyeOff,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
-  Bookmark,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
 import {useMemo, useState} from 'react';
+import {useImageUploadState} from '../../hooks/useImageUpload.ts';
 import {
   createAdminProject,
   deleteAdminProject,
@@ -59,7 +62,7 @@ export function AdminProjectsTab({dashboard, onUpdated, onNotify}: AdminProjects
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const uploadState = useImageUploadState();
   const [deleteTarget, setDeleteTarget] = useState<ProjectItem | null>(null);
 
   const projects = dashboard.allProjects;
@@ -81,11 +84,15 @@ export function AdminProjectsTab({dashboard, onUpdated, onNotify}: AdminProjects
   const openCreateForm = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
+    uploadState.cancelStaged();
+    uploadState.clearFeedback();
     setShowForm(true);
   };
 
   const openEditForm = (project: ProjectItem) => {
     setEditingId(project.id);
+    uploadState.cancelStaged();
+    uploadState.clearFeedback();
     setForm({
       title: project.title,
       clientName: project.clientName,
@@ -100,18 +107,28 @@ export function AdminProjectsTab({dashboard, onUpdated, onNotify}: AdminProjects
     setShowForm(true);
   };
 
-  const handleUploadCover = async (file?: File) => {
-    if (!file) return;
-    setUploading(true);
+  const executeUploadCover = async (file: File) => {
+    uploadState.startUpload('cover');
     try {
-      const {media, dashboard: nextDash} = await uploadMediaFile(file, 'project');
+      const {media, dashboard: nextDash} = await uploadMediaFile(
+        file,
+        'project',
+        (percent, stage) => uploadState.updateProgress('cover', percent, stage)
+      );
       setForm((prev) => ({...prev, coverImage: media.url}));
       onUpdated(nextDash);
+      uploadState.finishSuccess('cover', 'Cover image uploaded to cloud storage.');
       onNotify('success', 'Cover image uploaded.');
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Failed to upload cover image.');
-    } finally {
-      setUploading(false);
+      let msg = err instanceof Error ? err.message : 'Failed to upload cover image.';
+      try {
+        const parsed = JSON.parse(msg) as {error?: string};
+        if (parsed?.error) msg = parsed.error;
+      } catch {
+        // plain error
+      }
+      uploadState.finishError('cover', msg, file);
+      onNotify('error', msg);
     }
   };
 
@@ -359,8 +376,19 @@ export function AdminProjectsTab({dashboard, onUpdated, onNotify}: AdminProjects
 
           {/* Cover Image Upload / Preview */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center rounded-xl border border-white/[0.08] bg-[#08090D] p-4">
-            <div className="md:col-span-4 aspect-[16/10] overflow-hidden rounded-lg border border-white/[0.08] bg-[#11131B]">
-              {form.coverImage ? (
+            <div className="relative md:col-span-4 aspect-[16/10] overflow-hidden rounded-lg border border-white/[0.08] bg-[#11131B]">
+              {uploadState.staged?.slotKey === 'cover' ? (
+                <>
+                  <img
+                    src={uploadState.staged.previewUrl}
+                    alt="Selected cover preview"
+                    className="h-full w-full object-cover"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-[#08090D]/85 px-2.5 py-1 text-[11px] text-[#A855F7]">
+                    Preview ready ({Math.round(uploadState.staged.file.size / 1024)} KB)
+                  </div>
+                </>
+              ) : form.coverImage ? (
                 <img
                   src={form.coverImage}
                   alt="Cover preview"
@@ -375,26 +403,111 @@ export function AdminProjectsTab({dashboard, onUpdated, onNotify}: AdminProjects
             </div>
 
             <div className="md:col-span-8 space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#8B5CF6]/40 bg-[#8B5CF6]/15 px-4 py-2 text-xs font-medium text-[#F5F5F7] hover:bg-[#8B5CF6]/25">
-                  <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>{uploading ? 'Uploading...' : 'Upload Cover Image'}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => handleUploadCover(e.target.files?.[0])}
-                  />
-                </label>
+              {uploadState.job.uploading && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
+                    <span>{uploadState.job.stage}</span>
+                    <span className="font-mono-tabular text-[#A855F7]">
+                      {uploadState.job.progress}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] transition-all duration-200"
+                      style={{width: `${uploadState.job.progress}%`}}
+                    />
+                  </div>
+                </div>
+              )}
 
-                {form.coverImage && (
+              {!uploadState.job.uploading && uploadState.job.successMessage && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>{uploadState.job.successMessage}</span>
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setForm({...form, coverImage: ''})}
-                    className="rounded-lg border border-white/[0.1] px-3 py-2 text-xs text-[#9CA3AF] hover:text-red-300"
+                    onClick={uploadState.clearFeedback}
+                    className="text-emerald-200/70 hover:text-emerald-100"
                   >
-                    Clear Image
+                    <X className="h-3.5 w-3.5" />
                   </button>
+                </div>
+              )}
+
+              {!uploadState.job.uploading && uploadState.job.error && (
+                <div className="rounded-lg border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-200 space-y-2">
+                  <p>{uploadState.job.error}</p>
+                  {uploadState.job.failedFile && (
+                    <button
+                      type="button"
+                      onClick={() => executeUploadCover(uploadState.job.failedFile!)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-500/20 px-3 py-1 text-xs font-medium text-white hover:bg-red-500/30"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Retry Upload</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
+                {uploadState.staged?.slotKey === 'cover' ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={uploadState.job.uploading}
+                      onClick={() => executeUploadCover(uploadState.staged!.file)}
+                      className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>
+                        {uploadState.job.uploading ? 'Uploading...' : 'Save & Upload Cover'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={uploadState.job.uploading}
+                      onClick={uploadState.cancelStaged}
+                      className="rounded-lg border border-white/[0.1] px-3 py-2 text-xs text-[#9CA3AF] hover:text-[#F5F5F7]"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#8B5CF6]/40 bg-[#8B5CF6]/15 px-4 py-2 text-xs font-medium text-[#F5F5F7] hover:bg-[#8B5CF6]/25">
+                      <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>
+                        {uploadState.job.uploading
+                          ? 'Uploading...'
+                          : form.coverImage
+                          ? 'Replace Cover Image'
+                          : 'Select Cover Image'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          uploadState.stageFile('cover', f);
+                        }}
+                      />
+                    </label>
+
+                    {form.coverImage && (
+                      <button
+                        type="button"
+                        onClick={() => setForm({...form, coverImage: ''})}
+                        className="rounded-lg border border-white/[0.1] px-3 py-2 text-xs text-[#9CA3AF] hover:text-red-300"
+                      >
+                        Clear Image
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
 

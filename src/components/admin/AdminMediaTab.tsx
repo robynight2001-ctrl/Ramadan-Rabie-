@@ -1,5 +1,6 @@
-import {Check, Copy, RefreshCw, Trash2, Upload} from 'lucide-react';
+import {Check, CheckCircle2, Copy, RefreshCw, Trash2, Upload, X} from 'lucide-react';
 import {useMemo, useState} from 'react';
+import {useImageUploadState} from '../../hooks/useImageUpload.ts';
 import {
   deleteMediaFile,
   replaceMediaFile,
@@ -17,43 +18,62 @@ interface AdminMediaTabProps {
 export function AdminMediaTab({dashboard, onUpdated, onNotify}: AdminMediaTabProps) {
   const [tagFilter, setTagFilter] = useState<string>('all');
   const [uploadTag, setUploadTag] = useState<MediaItem['sectionTag']>('general');
-  const [uploading, setUploading] = useState(false);
   const [replacingId, setReplacingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null);
+  const uploadState = useImageUploadState();
 
   const filteredMedia = useMemo(() => {
     if (tagFilter === 'all') return dashboard.media;
     return dashboard.media.filter((m) => m.sectionTag === tagFilter);
   }, [dashboard.media, tagFilter]);
 
-  const handleUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setUploading(true);
+  const executeUpload = async (file: File) => {
+    uploadState.startUpload('library');
     try {
-      let latest = dashboard;
-      for (const file of Array.from(files)) {
-        const res = await uploadMediaFile(file, uploadTag);
-        latest = res.dashboard;
-      }
-      onUpdated(latest);
-      onNotify('success', `Uploaded ${files.length} image(s) to persistent storage.`);
+      const res = await uploadMediaFile(file, uploadTag, (percent, stage) =>
+        uploadState.updateProgress('library', percent, stage)
+      );
+      onUpdated(res.dashboard);
+      uploadState.finishSuccess(
+        'library',
+        `Saved "${res.media.originalName}" permanently to cloud storage.`
+      );
+      onNotify('success', 'Image uploaded to persistent cloud storage.');
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Upload failed.');
-    } finally {
-      setUploading(false);
+      let msg = err instanceof Error ? err.message : 'Upload failed.';
+      try {
+        const parsed = JSON.parse(msg) as {error?: string};
+        if (parsed?.error) msg = parsed.error;
+      } catch {
+        // plain error text
+      }
+      uploadState.finishError('library', msg, file);
+      onNotify('error', msg);
     }
   };
 
   const handleReplace = async (id: string, file?: File) => {
     if (!file) return;
     setReplacingId(id);
+    uploadState.startUpload(`replace-${id}`);
     try {
-      const res = await replaceMediaFile(id, file);
+      const res = await replaceMediaFile(id, file, (percent, stage) =>
+        uploadState.updateProgress(`replace-${id}`, percent, stage)
+      );
       onUpdated(res.dashboard);
+      uploadState.finishSuccess(`replace-${id}`, 'Replacement image saved across all linked sections.');
       onNotify('success', 'Image replaced across all linked sections.');
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Replace failed.');
+      let msg = err instanceof Error ? err.message : 'Replace failed.';
+      try {
+        const parsed = JSON.parse(msg) as {error?: string};
+        if (parsed?.error) msg = parsed.error;
+      } catch {
+        // plain error text
+      }
+      uploadState.finishError(`replace-${id}`, msg, file);
+      onNotify('error', msg);
     } finally {
       setReplacingId(null);
     }
@@ -101,40 +121,149 @@ export function AdminMediaTab({dashboard, onUpdated, onNotify}: AdminMediaTabPro
   return (
     <div className="space-y-6">
       {/* Upload Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-[#11131B] p-5">
-        <div>
-          <h2 className="font-display text-lg font-semibold text-[#F5F5F7]">Media Library</h2>
-          <p className="mt-1 text-xs text-[#9CA3AF]">
-            Persistent image storage for profile, hero, about, and project showcases.
-          </p>
+      <div className="rounded-2xl border border-white/[0.08] bg-[#11131B] p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-[#F5F5F7]">Media Library</h2>
+            <p className="mt-1 text-xs text-[#9CA3AF]">
+              Persistent cloud image storage for profile, hero, about, and project showcases (JPG, PNG, WebP · max 10 MB).
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={uploadTag}
+              onChange={(e) => setUploadTag(e.target.value as MediaItem['sectionTag'])}
+              className="rounded-xl border border-white/[0.1] bg-[#08090D] px-3 py-2 text-xs text-[#F5F5F7] focus:border-[#8B5CF6] focus:outline-none"
+              aria-label="Target section tag"
+            >
+              <option value="general">Tag: General</option>
+              <option value="profile">Tag: Profile</option>
+              <option value="hero">Tag: Hero</option>
+              <option value="about">Tag: About</option>
+              <option value="project">Tag: Project</option>
+            </select>
+
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-4 py-2 text-xs font-semibold text-white hover:opacity-95">
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              <span>
+                {uploadState.job.uploading && uploadState.job.slotKey === 'library'
+                  ? 'Uploading...'
+                  : 'Select Image'}
+              </span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  uploadState.stageFile('library', f);
+                }}
+              />
+            </label>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={uploadTag}
-            onChange={(e) => setUploadTag(e.target.value as MediaItem['sectionTag'])}
-            className="rounded-xl border border-white/[0.1] bg-[#08090D] px-3 py-2 text-xs text-[#F5F5F7] focus:border-[#8B5CF6] focus:outline-none"
-            aria-label="Target section tag"
-          >
-            <option value="general">Tag: General</option>
-            <option value="profile">Tag: Profile</option>
-            <option value="hero">Tag: Hero</option>
-            <option value="about">Tag: About</option>
-            <option value="project">Tag: Project</option>
-          </select>
+        {/* Staged Preview Before Saving */}
+        {uploadState.staged?.slotKey === 'library' && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-[#8B5CF6]/40 bg-[#08090D] p-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/[0.08] bg-[#11131B]">
+                <img
+                  src={uploadState.staged.previewUrl}
+                  alt="Upload preview"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[#F5F5F7] truncate">
+                  {uploadState.staged.file.name}
+                </p>
+                <p className="text-xs text-[#9CA3AF]">
+                  {Math.round(uploadState.staged.file.size / 1024)} KB · Target tag: {uploadTag}
+                </p>
+              </div>
+            </div>
 
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-4 py-2 text-xs font-semibold text-white hover:opacity-95">
-            <Upload className="h-4 w-4" aria-hidden="true" />
-            <span>{uploading ? 'Uploading...' : 'Upload Images'}</span>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => handleUpload(e.target.files)}
-            />
-          </label>
-        </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={uploadState.job.uploading}
+                onClick={() => executeUpload(uploadState.staged!.file)}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{uploadState.job.uploading ? 'Uploading...' : 'Confirm & Upload'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={uploadState.job.uploading}
+                onClick={uploadState.cancelStaged}
+                className="rounded-xl border border-white/[0.1] px-3 py-2 text-xs text-[#9CA3AF] hover:text-[#F5F5F7]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Progress Bar */}
+        {uploadState.job.uploading && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
+              <span>{uploadState.job.stage}</span>
+              <span className="font-mono-tabular text-[#A855F7]">{uploadState.job.progress}%</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.08]">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] transition-all duration-200"
+                style={{width: `${uploadState.job.progress}%`}}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {!uploadState.job.uploading && uploadState.job.successMessage && (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-xs text-emerald-300">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{uploadState.job.successMessage}</span>
+            </span>
+            <button
+              type="button"
+              onClick={uploadState.clearFeedback}
+              className="text-emerald-200/70 hover:text-emerald-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Error Message + Retry */}
+        {!uploadState.job.uploading && uploadState.job.error && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-xs text-red-200">
+            <span>{uploadState.job.error}</span>
+            {uploadState.job.failedFile && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (uploadState.job.slotKey.startsWith('replace-')) {
+                    const targetId = uploadState.job.slotKey.replace('replace-', '');
+                    handleReplace(targetId, uploadState.job.failedFile!);
+                  } else {
+                    executeUpload(uploadState.job.failedFile!);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/40 bg-red-500/20 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500/30"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Retry Upload</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filter Tabs */}
@@ -249,9 +378,13 @@ export function AdminMediaTab({dashboard, onUpdated, onNotify}: AdminMediaTabPro
                       <span>{replacingId === item.id ? 'Replacing...' : 'Replace File'}</span>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                         className="hidden"
-                        onChange={(e) => handleReplace(item.id, e.target.files?.[0])}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          handleReplace(item.id, f);
+                        }}
                       />
                     </label>
 

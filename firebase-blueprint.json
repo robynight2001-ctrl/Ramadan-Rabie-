@@ -1,5 +1,28 @@
 {
   "entities": {
+    "AuthGate": {
+      "title": "AuthGate",
+      "description": "Write-only server-verified authorization proof document for atomic admin mutations.",
+      "type": "object",
+      "properties": {
+        "vaultKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Server request timestamp proving fresh batch authorization."
+        }
+      },
+      "required": ["vaultKey", "username", "timestamp"]
+    },
     "PortfolioSnapshot": {
       "title": "PortfolioSnapshot",
       "description": "Published or draft site-wide configuration for profile, social links, section copy, and general settings.",
@@ -174,7 +197,7 @@
     },
     "MediaAsset": {
       "title": "MediaAsset",
-      "description": "Uploaded or studio image asset managed in the Media Library.",
+      "description": "Uploaded or studio image asset stored permanently in Firestore.",
       "type": "object",
       "properties": {
         "id": {
@@ -233,29 +256,45 @@
     }
   },
   "firestore": {
+    "/admin_gate/auth_proof": {
+      "schema": {"$ref": "#/entities/AuthGate"},
+      "description": "Non-readable server verification gate updated atomically with admin mutations."
+    },
+    "/admin_vault/{vaultKey}/draft/current": {
+      "schema": {"$ref": "#/entities/PortfolioSnapshot"},
+      "description": "Private admin draft settings snapshot and publish state."
+    },
+    "/admin_vault/{vaultKey}/projects/{projectId}": {
+      "schema": {"$ref": "#/entities/Project"},
+      "description": "Private admin workspace containing both draft and published projects."
+    },
+    "/admin_vault/{vaultKey}/services/{serviceId}": {
+      "schema": {"$ref": "#/entities/Service"},
+      "description": "Private admin workspace containing active and inactive services."
+    },
+    "/admin_vault/{vaultKey}/skills/{skillId}": {
+      "schema": {"$ref": "#/entities/Skill"},
+      "description": "Private admin workspace containing technical skills."
+    },
+    "/admin_vault/{vaultKey}/media/{mediaId}": {
+      "schema": {"$ref": "#/entities/MediaAsset"},
+      "description": "Private admin Media Library assets and persistent image URLs."
+    },
     "/portfolio_public/live": {
       "schema": {"$ref": "#/entities/PortfolioSnapshot"},
       "description": "Publicly readable published portfolio configuration snapshot."
     },
-    "/portfolio_draft/current": {
-      "schema": {"$ref": "#/entities/PortfolioSnapshot"},
-      "description": "Admin-only draft settings snapshot and publish state."
-    },
     "/projects/{projectId}": {
       "schema": {"$ref": "#/entities/Project"},
-      "description": "Portfolio projects collection; public read restricted to isPublished == true."
+      "description": "Published portfolio projects collection; public read restricted to isPublished == true."
     },
     "/services/{serviceId}": {
       "schema": {"$ref": "#/entities/Service"},
-      "description": "Engineering services collection; public read restricted to isActive == true."
+      "description": "Active engineering services collection; public read restricted to isActive == true."
     },
     "/skills/{skillId}": {
       "schema": {"$ref": "#/entities/Skill"},
-      "description": "Technical skills collection."
-    },
-    "/media/{mediaId}": {
-      "schema": {"$ref": "#/entities/MediaAsset"},
-      "description": "Admin-only Media Library metadata and persistent image references."
+      "description": "Published technical skills collection."
     }
   }
 }

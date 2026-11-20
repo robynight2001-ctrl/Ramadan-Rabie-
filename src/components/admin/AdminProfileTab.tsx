@@ -1,5 +1,6 @@
-import {Plus, Save, Trash2, Upload} from 'lucide-react';
+import {CheckCircle2, Plus, RefreshCw, Save, Trash2, Upload, X} from 'lucide-react';
 import {useEffect, useState} from 'react';
+import {useImageUploadState} from '../../hooks/useImageUpload.ts';
 import {saveSettingsSection, uploadMediaFile} from '../../lib/api.ts';
 import type {AdminDashboardData, ProfileSettings} from '../../types/portfolio.ts';
 
@@ -19,7 +20,7 @@ export function AdminProfileTab({
   const [form, setForm] = useState<ProfileSettings>(dashboard.profile);
   const [newHighlight, setNewHighlight] = useState('');
   const [saving, setSaving] = useState(false);
-  const [uploadingField, setUploadingField] = useState<string>('');
+  const uploadState = useImageUploadState();
 
   useEffect(() => {
     setForm(dashboard.profile);
@@ -31,24 +32,34 @@ export function AdminProfileTab({
     onDirtyChange?.(isDirty);
   }, [form, dashboard.profile, onDirtyChange]);
 
-  const handleImageUpload = async (
+  const executeSlotUpload = async (
     field: 'profileImage' | 'aboutImage' | 'heroBgImage',
     sectionTag: 'profile' | 'about' | 'hero',
-    file?: File
+    file: File
   ) => {
-    if (!file) return;
-    setUploadingField(field);
+    uploadState.startUpload(field);
     try {
-      const {media, dashboard: nextDashboard} = await uploadMediaFile(file, sectionTag);
+      const {media, dashboard: nextDashboard} = await uploadMediaFile(
+        file,
+        sectionTag,
+        (percent, stage) => uploadState.updateProgress(field, percent, stage)
+      );
       const nextForm = {...form, [field]: media.url};
       setForm(nextForm);
       const saved = await saveSettingsSection('profile', nextForm);
       onUpdated(saved ?? nextDashboard);
+      uploadState.finishSuccess(field, 'Image uploaded & saved to cloud database.');
       onNotify('success', 'Image uploaded and saved to profile.');
     } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : 'Image upload failed.');
-    } finally {
-      setUploadingField('');
+      let msg = err instanceof Error ? err.message : 'Image upload failed.';
+      try {
+        const parsed = JSON.parse(msg) as {error?: string};
+        if (parsed?.error) msg = parsed.error;
+      } catch {
+        // plain error text
+      }
+      uploadState.finishError(field, msg, file);
+      onNotify('error', msg);
     }
   };
 
@@ -89,7 +100,7 @@ export function AdminProfileTab({
       <div className="rounded-2xl border border-white/[0.08] bg-[#11131B] p-6">
         <h2 className="font-display text-lg font-semibold text-[#F5F5F7]">Profile & Section Visuals</h2>
         <p className="mt-1 text-xs text-[#9CA3AF]">
-          Upload, replace, pick from your Media Library, or clear images for key portfolio slots.
+          Select JPG, PNG, or WebP images (max 10 MB), preview before saving, and store permanently in Cloud Firestore.
         </p>
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -113,6 +124,10 @@ export function AdminProfileTab({
             ] as const
           ).map((slot) => {
             const url = form[slot.field];
+            const isStagedHere = uploadState.staged?.slotKey === slot.field;
+            const isJobHere = uploadState.job.slotKey === slot.field;
+            const displayUrl = isStagedHere ? uploadState.staged!.previewUrl : url;
+
             return (
               <div
                 key={slot.field}
@@ -120,9 +135,9 @@ export function AdminProfileTab({
               >
                 <span className="text-xs font-medium text-[#F5F5F7] mb-3">{slot.label}</span>
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-white/[0.06] bg-[#11131B]">
-                  {url ? (
+                  {displayUrl ? (
                     <img
-                      src={url}
+                      src={displayUrl}
                       alt={slot.label}
                       referrerPolicy="no-referrer"
                       className="h-full w-full object-cover"
@@ -132,31 +147,130 @@ export function AdminProfileTab({
                       No image selected
                     </div>
                   )}
+                  {isStagedHere && (
+                    <div className="absolute inset-x-0 bottom-0 bg-[#08090D]/85 px-2.5 py-1.5 text-[11px] text-[#A855F7]">
+                      Preview ready ({Math.round(uploadState.staged!.file.size / 1024)} KB)
+                    </div>
+                  )}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#8B5CF6]/40 bg-[#8B5CF6]/15 px-3 py-1.5 text-xs font-medium text-[#F5F5F7] hover:bg-[#8B5CF6]/25">
-                    <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>
-                      {uploadingField === slot.field ? 'Uploading...' : url ? 'Replace' : 'Upload'}
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleImageUpload(slot.field, slot.tag, e.target.files?.[0])}
-                    />
-                  </label>
+                {/* Progress Bar */}
+                {isJobHere && uploadState.job.uploading && (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-[#9CA3AF]">
+                      <span className="truncate">{uploadState.job.stage}</span>
+                      <span className="font-mono-tabular text-[#A855F7]">
+                        {uploadState.job.progress}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] transition-all duration-200"
+                        style={{width: `${uploadState.job.progress}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
 
-                  {url && (
+                {/* Success Message */}
+                {isJobHere && !uploadState.job.uploading && uploadState.job.successMessage && (
+                  <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-300">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span>{uploadState.job.successMessage}</span>
+                    </span>
                     <button
                       type="button"
-                      onClick={() => setForm((prev) => ({...prev, [slot.field]: ''}))}
-                      className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
+                      onClick={uploadState.clearFeedback}
+                      aria-label="Dismiss upload confirmation"
+                      className="text-emerald-200/70 hover:text-emerald-100"
                     >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>Remove</span>
+                      <X className="h-3 w-3" />
                     </button>
+                  </div>
+                )}
+
+                {/* Error & Retry */}
+                {isJobHere && !uploadState.job.uploading && uploadState.job.error && (
+                  <div className="mt-3 rounded-lg border border-red-500/35 bg-red-500/10 p-2.5 text-[11px] text-red-200 space-y-2">
+                    <p>{uploadState.job.error}</p>
+                    {uploadState.job.failedFile && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          executeSlotUpload(slot.field, slot.tag, uploadState.job.failedFile!)
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-500/20 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-500/30"
+                      >
+                        <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                        <span>Retry Upload</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {isStagedHere ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={uploadState.job.uploading}
+                        onClick={() =>
+                          executeSlotUpload(slot.field, slot.tag, uploadState.staged!.file)
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      >
+                        <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>
+                          {isJobHere && uploadState.job.uploading
+                            ? 'Uploading...'
+                            : 'Save & Upload'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={uploadState.job.uploading}
+                        onClick={uploadState.cancelStaged}
+                        className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] px-2.5 py-1.5 text-xs text-[#9CA3AF] hover:text-[#F5F5F7]"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#8B5CF6]/40 bg-[#8B5CF6]/15 px-3 py-1.5 text-xs font-medium text-[#F5F5F7] hover:bg-[#8B5CF6]/25">
+                        <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>
+                          {isJobHere && uploadState.job.uploading
+                            ? 'Uploading...'
+                            : url
+                            ? 'Replace'
+                            : 'Select Image'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            uploadState.stageFile(slot.field, f);
+                          }}
+                        />
+                      </label>
+
+                      {url && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((prev) => ({...prev, [slot.field]: ''}))}
+                          className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>Remove</span>
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 

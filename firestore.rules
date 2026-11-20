@@ -19,17 +19,23 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
+    function isValidVaultKey(vaultKey) {
+      return isValidId(vaultKey)
+        && hashing.sha256(vaultKey + ':ramadan-server-pepper-2026').toHexString().lower()
+          == '850b9be4046764179fb498480d5c4696794bf33e9e033c9f412f0613adcf5a5b';
     }
 
-    function isAdmin() {
-      return isSignedIn()
-        && request.auth.token.email_verified == true
-        && (
-          request.auth.token.email == 'robynight2001@gmail.com'
-          || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-        );
+    function isValidAuthGate(data) {
+      return data.keys().hasAll(['vaultKey', 'username', 'timestamp'])
+        && data.keys().hasOnly(['vaultKey', 'username', 'timestamp'])
+        && isValidVaultKey(data.vaultKey)
+        && data.username is string
+        && data.username == 'Ramadan'
+        && data.timestamp == request.time;
+    }
+
+    function isAuthorizedGateWrite() {
+      return getAfter(/databases/$(database)/documents/admin_gate/auth_proof).data.timestamp == request.time;
     }
 
     function isValidSnapshotMap(data) {
@@ -168,62 +174,93 @@ service cloud.firestore {
       allow get: if true;
     }
 
+    // Non-readable admin verification gate updated atomically with writes
+    match /admin_gate/{docId} {
+      allow read: if false;
+      allow create, update: if docId == 'auth_proof' && isValidAuthGate(incoming());
+      allow delete: if false;
+    }
+
+    // Private Admin Workspace Vault (never listable at root, verified by salted double-hash)
+    match /admin_vault/{vaultKey} {
+      allow read, write: if false;
+
+      match /draft/{docId} {
+        allow get: if docId == 'current' && isValidVaultKey(vaultKey);
+        allow create, update: if docId == 'current' && isValidVaultKey(vaultKey) && isValidDraftSnapshot(incoming());
+        allow delete: if false;
+      }
+
+      match /projects/{projectId} {
+        allow get: if isValidId(projectId) && isValidVaultKey(vaultKey);
+        allow list: if isValidVaultKey(vaultKey);
+        allow create: if isValidId(projectId) && isValidVaultKey(vaultKey) && isValidProject(incoming(), projectId);
+        allow update: if isValidId(projectId) && isValidVaultKey(vaultKey) && isValidProject(incoming(), projectId)
+          && incoming().createdAt == existing().createdAt;
+        allow delete: if isValidId(projectId) && isValidVaultKey(vaultKey);
+      }
+
+      match /services/{serviceId} {
+        allow get: if isValidId(serviceId) && isValidVaultKey(vaultKey);
+        allow list: if isValidVaultKey(vaultKey);
+        allow create: if isValidId(serviceId) && isValidVaultKey(vaultKey) && isValidService(incoming(), serviceId);
+        allow update: if isValidId(serviceId) && isValidVaultKey(vaultKey) && isValidService(incoming(), serviceId);
+        allow delete: if isValidId(serviceId) && isValidVaultKey(vaultKey);
+      }
+
+      match /skills/{skillId} {
+        allow get: if isValidId(skillId) && isValidVaultKey(vaultKey);
+        allow list: if isValidVaultKey(vaultKey);
+        allow create: if isValidId(skillId) && isValidVaultKey(vaultKey) && isValidSkill(incoming(), skillId);
+        allow update: if isValidId(skillId) && isValidVaultKey(vaultKey) && isValidSkill(incoming(), skillId);
+        allow delete: if isValidId(skillId) && isValidVaultKey(vaultKey);
+      }
+
+      match /media/{mediaId} {
+        allow get: if isValidId(mediaId) && isValidVaultKey(vaultKey);
+        allow list: if isValidVaultKey(vaultKey);
+        allow create: if isValidId(mediaId) && isValidVaultKey(vaultKey) && isValidMedia(incoming(), mediaId);
+        allow update: if isValidId(mediaId) && isValidVaultKey(vaultKey) && isValidMedia(incoming(), mediaId)
+          && incoming().createdAt == existing().createdAt;
+        allow delete: if isValidId(mediaId) && isValidVaultKey(vaultKey);
+      }
+    }
+
     // Published public portfolio snapshot (single doc)
     match /portfolio_public/{docId} {
       allow get: if docId == 'live';
-      allow create, update: if docId == 'live' && isAdmin() && isValidPublicSnapshot(incoming());
+      allow create, update: if docId == 'live' && isValidPublicSnapshot(incoming()) && isAuthorizedGateWrite();
       allow delete: if false;
     }
 
-    // Admin-only draft configuration snapshot (single doc)
-    match /portfolio_draft/{docId} {
-      allow get: if docId == 'current' && isAdmin();
-      allow create, update: if docId == 'current' && isAdmin() && isValidDraftSnapshot(incoming());
-      allow delete: if false;
-    }
-
-    // Portfolio Projects
+    // Publicly visible published Portfolio Projects
     match /projects/{projectId} {
-      allow get: if isValidId(projectId) && (existing().isPublished == true || isAdmin());
-      allow list: if existing().isPublished == true || isAdmin();
-      allow create: if isAdmin() && isValidId(projectId) && isValidProject(incoming(), projectId);
-      allow update: if isAdmin() && isValidId(projectId) && isValidProject(incoming(), projectId)
-        && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(projectId);
+      allow get: if isValidId(projectId) && existing().isPublished == true;
+      allow list: if existing().isPublished == true;
+      allow create: if isValidId(projectId) && isValidProject(incoming(), projectId)
+        && incoming().isPublished == true && isAuthorizedGateWrite();
+      allow update: if isValidId(projectId) && isValidProject(incoming(), projectId)
+        && incoming().isPublished == true && incoming().createdAt == existing().createdAt
+        && isAuthorizedGateWrite();
+      allow delete: if isValidId(projectId) && isAuthorizedGateWrite();
     }
 
-    // Services
+    // Publicly visible active Services
     match /services/{serviceId} {
-      allow get: if isValidId(serviceId) && (existing().isActive == true || isAdmin());
-      allow list: if existing().isActive == true || isAdmin();
-      allow create: if isAdmin() && isValidId(serviceId) && isValidService(incoming(), serviceId);
-      allow update: if isAdmin() && isValidId(serviceId) && isValidService(incoming(), serviceId);
-      allow delete: if isAdmin() && isValidId(serviceId);
+      allow get: if isValidId(serviceId) && existing().isActive == true;
+      allow list: if existing().isActive == true;
+      allow create, update: if isValidId(serviceId) && isValidService(incoming(), serviceId)
+        && incoming().isActive == true && isAuthorizedGateWrite();
+      allow delete: if isValidId(serviceId) && isAuthorizedGateWrite();
     }
 
-    // Skills
+    // Publicly visible Skills
     match /skills/{skillId} {
       allow get: if isValidId(skillId);
       allow list: if true;
-      allow create: if isAdmin() && isValidId(skillId) && isValidSkill(incoming(), skillId);
-      allow update: if isAdmin() && isValidId(skillId) && isValidSkill(incoming(), skillId);
-      allow delete: if isAdmin() && isValidId(skillId);
-    }
-
-    // Admin-only Media Library
-    match /media/{mediaId} {
-      allow get: if isAdmin() && isValidId(mediaId);
-      allow list: if isAdmin();
-      allow create: if isAdmin() && isValidId(mediaId) && isValidMedia(incoming(), mediaId);
-      allow update: if isAdmin() && isValidId(mediaId) && isValidMedia(incoming(), mediaId)
-        && incoming().createdAt == existing().createdAt;
-      allow delete: if isAdmin() && isValidId(mediaId);
-    }
-
-    // Admin Registry
-    match /admins/{adminUid} {
-      allow get: if isSignedIn() && request.auth.uid == adminUid;
-      allow write: if false;
+      allow create, update: if isValidId(skillId) && isValidSkill(incoming(), skillId)
+        && isAuthorizedGateWrite();
+      allow delete: if isValidId(skillId) && isAuthorizedGateWrite();
     }
   }
 }

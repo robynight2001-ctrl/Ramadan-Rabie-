@@ -1,6 +1,6 @@
-import {ArrowLeft, Lock, ShieldCheck} from 'lucide-react';
+import {ArrowLeft, Eye, EyeOff, Lock, ShieldCheck} from 'lucide-react';
 import {useState} from 'react';
-import {loginAdminWithGoogle} from '../../lib/api.ts';
+import {loginAdminWithCredentials} from '../../lib/api.ts';
 
 interface AdminLoginProps {
   onSuccess: (username: string) => void;
@@ -8,17 +8,26 @@ interface AdminLoginProps {
 }
 
 export function AdminLogin({onSuccess, onBackHome}: AdminLoginProps) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleGoogleSignIn = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError('');
+    if (!username.trim() || !password) {
+      setError('Please enter both username and password.');
+      return;
+    }
+
     setLoading(true);
     try {
-      const user = await loginAdminWithGoogle();
-      onSuccess(user.displayName || user.email || 'Admin');
+      const signedInUser = await loginAdminWithCredentials(username.trim(), password);
+      onSuccess(signedInUser);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication failed.');
+      setError(err instanceof Error ? err.message : 'Invalid username or password.');
     } finally {
       setLoading(false);
     }
@@ -49,33 +58,81 @@ export function AdminLogin({onSuccess, onBackHome}: AdminLoginProps) {
             </div>
             <div>
               <h1 className="font-display text-2xl font-bold text-[#F5F5F7]">Settings</h1>
-              <p className="text-xs text-[#9CA3AF]">Administrator sign-in required</p>
+              <p className="text-xs text-[#9CA3AF]">Sign in to manage your portfolio</p>
             </div>
           </div>
 
-          <p className="mt-6 text-sm leading-relaxed text-[#9CA3AF]">
-            Sign in with your verified administrator Google account to manage portfolio projects,
-            media, services, and website publishing.
-          </p>
-
-          {error && (
-            <div
-              role="alert"
-              className="mt-5 rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-xs text-red-200"
-            >
-              {error}
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
+            <div>
+              <label
+                htmlFor="admin-username"
+                className="block text-xs font-medium text-[#9CA3AF] mb-2"
+              >
+                Username
+              </label>
+              <input
+                id="admin-username"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter username"
+                className="w-full rounded-xl border border-white/[0.1] bg-[#08090D] px-4 py-3 text-sm text-[#F5F5F7] placeholder-[#9CA3AF]/45 focus:border-[#8B5CF6] focus:outline-none"
+                required
+              />
             </div>
-          )}
 
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            disabled={loading}
-            className="mt-6 flex min-h-[46px] w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-95 disabled:opacity-60"
-          >
-            <Lock className="h-4 w-4" aria-hidden="true" />
-            <span>{loading ? 'Signing in...' : 'Sign In with Google'}</span>
-          </button>
+            <div>
+              <label
+                htmlFor="admin-password"
+                className="block text-xs font-medium text-[#9CA3AF] mb-2"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="admin-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                  className="w-full rounded-xl border border-white/[0.1] bg-[#08090D] pl-4 pr-11 py-3 text-sm text-[#F5F5F7] placeholder-[#9CA3AF]/45 focus:border-[#8B5CF6] focus:outline-none"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-[#9CA3AF] hover:text-[#F5F5F7]"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-xs text-red-200"
+              >
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#A855F7] px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-95 disabled:opacity-60"
+            >
+              <Lock className="h-4 w-4" aria-hidden="true" />
+              <span>{loading ? 'Signing in...' : 'Log In'}</span>
+            </button>
+          </form>
         </div>
       </div>
     </div>

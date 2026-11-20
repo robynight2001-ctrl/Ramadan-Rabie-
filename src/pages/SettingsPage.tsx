@@ -110,7 +110,7 @@ export function SettingsPage({onNavigateHome, onPortfolioChanged}: SettingsPageP
   useEffect(() => {
     const unsub = subscribeAuthState((state) => {
       setAuthenticated(state.authenticated);
-      setUsername(state.user?.displayName || state.user?.email || 'Admin');
+      setUsername(state.username || 'Ramadan');
       setAuthChecked(state.ready);
       if (!state.authenticated) {
         setDashboard(null);
